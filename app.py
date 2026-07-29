@@ -31,7 +31,7 @@ for i, arg in enumerate(sys.argv):
         DB_PATH = sys.argv[i + 1]
 
 sys.path.insert(0, str(BASE_DIR))
-from process_mapper import ProcessMapper, extract_from_excel, extract_from_text, MappingResult
+from process_mapper import ProcessMapper, extract_from_excel, extract_from_text, get_excel_sheets, MappingResult
 
 # ── 페이지 설정 ──────────────────────────────────────────────
 st.set_page_config(
@@ -104,7 +104,7 @@ def step_input():
         uploaded = st.file_uploader(
             "공사비 내역서(xlsx) 또는 공종목록(txt) 업로드",
             type=["xlsx", "txt"],
-            help="xlsx: 공종, 품명, 항목 등 컬럼을 자동 탐색합니다.\ntxt: 줄바꿈 또는 쉼표로 구분된 목록을 인식합니다.",
+            help="xlsx: 공종별집계표 시트를 우선 탐색합니다.\ntxt: 줄바꿈 또는 쉼표로 구분된 목록을 인식합니다.",
         )
         if uploaded:
             if uploaded.name.endswith(".xlsx"):
@@ -112,14 +112,35 @@ def step_input():
                 with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
                     tmp.write(uploaded.read())
                     tmp_path = tmp.name
-                extracted = extract_from_excel(tmp_path)
+
+                # 시트 목록 확인
+                sheets = get_excel_sheets(tmp_path)
+                has_detail = any("내역서" in s for s in sheets)
+                has_summary = any("집계표" in s for s in sheets)
+
+                if sheets:
+                    sheet_info = f"시트: {', '.join(sheets)}"
+                    if has_summary:
+                        sheet_info += " → **공종별집계표** 시트 사용"
+                    st.caption(sheet_info)
+
+                # 공종별내역서 포함 여부 선택
+                use_detail = False
+                if has_detail:
+                    use_detail = st.checkbox(
+                        "공종별내역서도 포함 (세부 공종 추가)",
+                        value=False,
+                        help="공종별집계표(큰 얼개) + 공종별내역서(세부 공종)를 함께 추출합니다."
+                    )
+
+                extracted = extract_from_excel(tmp_path, detail=use_detail)
                 os.unlink(tmp_path)
             else:
                 content = uploaded.read().decode("utf-8", errors="replace")
                 extracted = extract_from_text(content)
 
             if extracted:
-                st.success(f"{len(extracted)}개 항목 추출됨")
+                st.success(f"{len(extracted)}개 공종 추출됨")
                 st.dataframe({"추출된 공종": extracted}, height=200)
                 if st.button("이 목록으로 매핑 시작", type="primary"):
                     results = mapper.map_list(extracted)
@@ -127,7 +148,7 @@ def step_input():
                     st.session_state.step = 2
                     st.rerun()
             else:
-                st.warning("공종 항목을 추출하지 못했습니다. 컬럼명을 확인하거나 직접 입력해주세요.")
+                st.warning("공종 항목을 추출하지 못했습니다. 시트 구조를 확인하거나 직접 입력해주세요.")
 
     with col_b:
         st.markdown("#### ✏️ 직접 입력")

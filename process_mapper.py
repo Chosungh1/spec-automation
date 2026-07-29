@@ -181,34 +181,116 @@ class ProcessMapper:
         return results
 
 
-def extract_from_excel(file_path: str):
+def _normalize_korean(text: str) -> str:
+    """한글 낱자 사이 공백 제거: '가 설 공 사' → '가설공사'"""
+    # 한글 한 글자씩 공백으로 분리된 패턴 정규화
+    text = re.sub(r'(?<=[가-힣])\s(?=[가-힣])', '', text)
+    return text.strip()
+
+
+def _extract_from_sheet(ws) -> list:
+    """시트에서 품명 컬럼을 찾아 공종명 목록 반환"""
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows:
+        return []
+
+    header_keywords = ["공종", "품명", "항목", "공사명", "내용", "세목"]
+    col_idx = None
+    header_row = None
+
+    for i, row in enumerate(rows[:15]):
+        for j, cell in enumerate(row):
+            if cell and any(kw in str(cell) for kw in header_keywords):
+                header_row = i
+                col_idx = j
+                break
+        if header_row is not None:
+            break
+
+    if col_idx is None:
+        col_idx = 0
+
+    names = []
+    start = (header_row + 1) if header_row is not None else 0
+    for row in rows[start:]:
+        val = row[col_idx] if col_idx < len(row) else None
+        if not val or not isinstance(val, str):
+            continue
+        val = val.strip()
+        if len(val) < 2:
+            continue
+        # 코드+명칭 형태 파싱: "010101 공통 가설 공사" → "공통가설공사"
+        code_match = re.match(r'^(\d{4,8})\s+(.+)$', val)
+        if code_match:
+            code, name = code_match.group(1), code_match.group(2)
+            # 6자리 코드(공종 레벨)만 추출, 4자리(대공종) 또는 2자리(전체) 제외
+            if len(code) == 6:
+                names.append(_normalize_korean(name))
+        else:
+            names.append(_normalize_korean(val))
+
+    return list(dict.fromkeys(n for n in names if len(n) > 1))
+
+
+def extract_from_excel(file_path: str, detail: bool = False) -> list:
+    """
+    엑셀 내역서에서 공종명 추출.
+
+    Parameters
+    ----------
+    file_path : str
+        엑셀 파일 경로
+    detail : bool
+        True이면 '공종별내역서' 시트도 함께 참조 (세부 공종 추가)
+
+    Returns
+    -------
+    list[str]  공종명 목록
+    """
     try:
         import openpyxl
         wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
-        ws = wb.active
-        rows = list(ws.iter_rows(values_only=True))
-        if not rows:
-            return []
-        header_keywords = ["공종", "품명", "항목", "공사명", "내용", "세목"]
-        header_row = None
-        col_idx = None
-        for i, row in enumerate(rows[:10]):
-            for j, cell in enumerate(row):
-                if cell and any(kw in str(cell) for kw in header_keywords):
-                    header_row = i
-                    col_idx = j
-                    break
-            if header_row is not None:
-                break
-        if col_idx is None:
-            col_idx = 0
-        names = []
-        start = (header_row + 1) if header_row is not None else 0
-        for row in rows[start:]:
-            val = row[col_idx] if col_idx < len(row) else None
-            if val and isinstance(val, str) and len(val.strip()) > 1:
-                names.append(val.strip())
-        return list(dict.fromkeys(names))
+        sheet_names = wb.sheetnames
+
+        # 우선순위: 공종별집계표 > 공종별내역서 > active sheet
+        SUMMARY_KEYWORDS = ["공종별집계표", "집계표"]
+        DETAIL_KEYWORDS  = ["공종별내역서", "내역서"]
+
+        def find_sheet(keywords):
+            for kw in keywords:
+                for sn in sheet_names:
+                    if kw in sn:
+                        return wb[sn]
+            return None
+
+        summary_ws = find_sheet(SUMMARY_KEYWORDS)
+        detail_ws  = find_sheet(DETAIL_KEYWORDS) if detail else None
+
+        if summary_ws:
+            names = _extract_from_sheet(summary_ws)
+            if detail and detail_ws:
+                detail_names = _extract_from_sheet(detail_ws)
+                # 세부 공종 추가 (중복 제외)
+                existing = set(names)
+                for n in detail_names:
+                    if n not in existing:
+                        names.append(n)
+                        existing.add(n)
+            return names
+
+        # 집계표 시트를 못 찾은 경우 active sheet 사용
+        return _extract_from_sheet(wb.active)
+
+    except Exception:
+        return []
+
+
+def get_excel_sheets(file_path: str) -> list:
+    """엑셀 파일의 시트 목록 반환"""
+    try:
+        import openpyxl
+        wb = openpyxl.load_workbook(file_path, read_only=True)
+        return wb.sheetnames
     except Exception:
         return []
 
