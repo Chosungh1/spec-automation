@@ -110,7 +110,12 @@ class ProcessMapper:
 
     def map(self, input_name: str, threshold_standard: float = 0.15,
             threshold_ref: float = 0.05) -> MappingResult:
-        lower = input_name.lower()
+        # 앞에 붙은 번호 제거: "01.", "1.", "1-" 형식
+        cleaned = re.sub(r'^\d+[\.\-]\s*', '', input_name).strip()
+        # 한글 낱자 공백 정규화: "가 설 공 사" → "가설공사"
+        cleaned = _normalize_korean(cleaned)
+
+        lower = cleaned.lower()
         for kw in SPEC_ONLY_KEYWORDS:
             if kw.lower() in lower:
                 return MappingResult(
@@ -119,7 +124,7 @@ class ProcessMapper:
                     note="KCS 표준시방서 해당 없음 -> 특기시방서(AI초안) 생성 대상",
                 )
 
-        normalized = self._normalize(input_name)
+        normalized = self._normalize(cleaned)
         query_tokens = self._tokenize(normalized)
 
         scored = sorted(
