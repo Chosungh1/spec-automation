@@ -189,6 +189,48 @@ def step_input():
                 st.session_state.step = 2
                 st.rerun()
 
+    # ── KCS 카탈로그 선택 ──────────────────────────────────────
+    st.divider()
+    st.markdown("#### 📋 KCS 카탈로그에서 직접 선택")
+    st.caption("보유한 표준시방서 목록입니다. 해당 공종에 체크하면 바로 추가됩니다.")
+
+    all_specs = get_all_specs()
+    existing_codes = {m.get("detail_code") for m in st.session_state.mapped_items}
+
+    # process_name 기준으로 그룹화
+    from collections import defaultdict
+    groups = defaultdict(list)
+    for s in all_specs:
+        groups[s["process_name"] or "기타"].append(s)
+
+    cols = st.columns(3)
+    col_idx = 0
+    for group_name, specs in sorted(groups.items()):
+        with cols[col_idx % 3]:
+            st.markdown(f"**{group_name}**")
+            for s in specs:
+                code = s["detail_code"]
+                name = s["detail_name"]
+                already = code in existing_codes
+                label = f"{'✅ ' if already else ''}{name}"
+                if not already:
+                    if st.checkbox(label, key=f"cat_{code}", value=False):
+                        st.session_state.mapped_items.append({
+                            "input_name": name,
+                            "status": "STANDARD",
+                            "detail_code": code,
+                            "detail_name": name,
+                            "process_code": s["process_code"],
+                            "process_name": s["process_name"],
+                            "score": 1.0,
+                            "note": "카탈로그 직접 선택",
+                        })
+                        existing_codes.add(code)
+                        st.rerun()
+                else:
+                    st.markdown(f"<span style='color:#888;font-size:0.85em'>✅ {name}</span>", unsafe_allow_html=True)
+        col_idx += 1
+
     # 이미 항목이 있으면 검토 단계로 바로 이동 가능
     if st.session_state.mapped_items:
         st.divider()
