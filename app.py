@@ -189,6 +189,66 @@ def step_input():
                 st.session_state.step = 2
                 st.rerun()
 
+    # ── 건축물 부대시설 빠른 선택 ──────────────────────────────
+    st.divider()
+    st.markdown("#### 🏠 건축물 부대시설 선택")
+    st.caption("이 프로젝트에 해당하는 부대시설을 선택하세요. 자동으로 KCS 항목이 추가됩니다.")
+
+    # 부대시설 그룹 정의
+    ANNEX_GROUPS = {
+        "오수/배수 처리": [
+            ("오수정화시설공사 (정화조 대신 오수처리시설)", "건축물 오수정화시설공사"),
+            ("정화조공사 (개인하수처리시설)", "건축물 정화조공사"),
+            ("배수공사 (우수·오수 배관·측구)", "건축물 배수공사"),
+        ],
+        "외부시설": [
+            ("대문·담장·울타리공사", "건축물 대문,담장,울타리공사"),
+            ("굴뚝공사", "건축물 굴뚝공사"),
+            ("잡시설공사 (기타 부대시설)", "건축물 잡시설공사"),
+        ],
+        "특수시설": [
+            ("공동구공사 (전기·통신 공동구)", "건축물 공동구공사"),
+            ("우물공사", "건축물 우물공사"),
+        ],
+    }
+
+    # DB에서 부대공사 spec 조회
+    all_specs = get_all_specs()
+    annex_spec_map = {s["detail_name"]: s for s in all_specs}
+    existing_codes_annex = {m.get("detail_code") for m in st.session_state.mapped_items}
+
+    annex_cols = st.columns(3)
+    col_i = 0
+    added_annex = False
+    for group_label, items in ANNEX_GROUPS.items():
+        with annex_cols[col_i % 3]:
+            st.markdown(f"**{group_label}**")
+            for desc, spec_name in items:
+                spec = annex_spec_map.get(spec_name)
+                if not spec:
+                    continue
+                code = spec["detail_code"]
+                already = code in existing_codes_annex
+                if already:
+                    st.markdown(f"<span style='color:#888;font-size:0.85em'>✅ {desc}</span>", unsafe_allow_html=True)
+                else:
+                    if st.checkbox(desc, key=f"annex_{code}", value=False):
+                        st.session_state.mapped_items.append({
+                            "input_name": spec_name,
+                            "status": "STANDARD",
+                            "detail_code": code,
+                            "detail_name": spec_name,
+                            "process_code": spec.get("process_code"),
+                            "process_name": spec.get("process_name"),
+                            "score": 1.0,
+                            "note": "부대시설 직접 선택",
+                        })
+                        existing_codes_annex.add(code)
+                        added_annex = True
+        col_i += 1
+    if added_annex:
+        st.rerun()
+
     # ── KCS 카탈로그 선택 ──────────────────────────────────────
     st.divider()
     st.markdown("#### 📋 KCS 카탈로그에서 직접 선택")
