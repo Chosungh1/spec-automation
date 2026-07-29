@@ -189,45 +189,49 @@ def _normalize_korean(text: str) -> str:
 
 
 def _extract_from_sheet(ws) -> list:
-    """시트에서 품명 컬럼을 찾아 공종명 목록 반환"""
+    """
+    시트에서 공종명 목록 반환.
+    - 6자리 코드(010101~010119)가 있는 행을 찾아서
+    - 같은 행의 한글 셀 값을 공종명으로 사용.
+    - 코드+이름이 같은 셀에 있거나 별도 셀에 있는 경우 모두 처리.
+    """
     rows = list(ws.iter_rows(values_only=True))
     if not rows:
         return []
 
-    header_keywords = ["공종", "품명", "항목", "공사명", "내용", "세목"]
-    col_idx = None
-    header_row = None
-
-    for i, row in enumerate(rows[:15]):
-        for j, cell in enumerate(row):
-            if cell and any(kw in str(cell) for kw in header_keywords):
-                header_row = i
-                col_idx = j
-                break
-        if header_row is not None:
-            break
-
-    if col_idx is None:
-        col_idx = 0
-
     names = []
-    start = (header_row + 1) if header_row is not None else 0
-    for row in rows[start:]:
-        val = row[col_idx] if col_idx < len(row) else None
-        if not val or not isinstance(val, str):
+
+    for row in rows:
+        # 모든 셀을 문자열로 변환
+        cells = [str(c).strip() if c is not None else '' for c in row]
+
+        # 이 행에 6자리 숫자 코드가 있는지 확인
+        found_6digit = False
+        for cell in cells:
+            # "010102", "010102 가설공사", 또는 숫자 10102 형태 모두 처리
+            digits = re.sub(r'\D', '', cell)
+            if len(digits) == 6:
+                found_6digit = True
+                break
+            # 선행 0이 빠진 5자리 숫자 (Excel이 10102로 저장한 경우)
+            if len(digits) == 5 and cell.startswith(digits):
+                found_6digit = True
+                break
+
+        if not found_6digit:
             continue
-        val = val.strip()
-        if len(val) < 2:
-            continue
-        # 코드+명칭 형태 파싱: "010101 공통 가설 공사" → "공통가설공사"
-        code_match = re.match(r'^(\d{4,8})\s+(.+)$', val)
-        if code_match:
-            code, name = code_match.group(1), code_match.group(2)
-            # 6자리 코드(공종 레벨)만 추출, 4자리(대공종) 또는 2자리(전체) 제외
-            if len(code) == 6:
-                names.append(_normalize_korean(name))
-        else:
-            names.append(_normalize_korean(val))
+
+        # 같은 행에서 한글이 포함된 셀을 공종명으로 사용
+        for cell in cells:
+            if re.search(r'[가-힣]', cell):
+                # 코드가 앞에 붙어 있으면 분리: "010102 가설공사" → "가설공사"
+                name = re.sub(r'^\d+\s*', '', cell).strip()
+                if not name:
+                    name = cell.strip()
+                normalized = _normalize_korean(name)
+                if len(normalized) > 1:
+                    names.append(normalized)
+                break
 
     return list(dict.fromkeys(n for n in names if len(n) > 1))
 
