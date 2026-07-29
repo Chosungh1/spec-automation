@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.env
+*.bat
+generated/
+output/
+*.log
+.DS_Store
+node_modules/
+build_docx.js
+parse_specs_backup.py
+HANDOFF.md
+시방서표지및목차/
